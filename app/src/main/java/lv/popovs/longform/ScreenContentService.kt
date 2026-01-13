@@ -16,6 +16,7 @@ class ScreenContentService : AccessibilityService() {
 
     private val capturedParagraphs = LinkedHashSet<String>()
     private var unproductiveScrolls = 0
+    private var articleTitle: CharSequence? = null
 
     private val scrollHandler = Handler(Looper.getMainLooper())
     private lateinit var scrollRunnable: Runnable
@@ -24,9 +25,14 @@ class ScreenContentService : AccessibilityService() {
         super.onServiceConnected()
         capturedParagraphs.clear()
         unproductiveScrolls = 0
+        articleTitle = null
 
         scrollRunnable = Runnable {
             val rootNode = rootInActiveWindow ?: return@Runnable
+
+            if (articleTitle == null) {
+                articleTitle = rootNode.window?.title
+            }
 
             val lastSize = capturedParagraphs.size
             val paragraphs = mutableListOf<String>()
@@ -73,24 +79,36 @@ class ScreenContentService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         scrollHandler.removeCallbacks(scrollRunnable) // Clean up the handler
+
+        if (capturedParagraphs.isEmpty()) {
+            return super.onUnbind(intent)
+        }
+
         val collectedText = capturedParagraphs.joinToString("\n\n")
         val articleIntent = Intent(this, ArticleActivity::class.java).apply {
             putExtra(ArticleActivity.EXTRA_TEXT, collectedText)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
-        val pendingIntent = PendingIntent.getActivity(this, 0, articleIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val pendingIntent = PendingIntent.getActivity(this, notificationIdCounter, articleIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channel = NotificationChannel(CHANNEL_ID, "Captured Articles", NotificationManager.IMPORTANCE_DEFAULT)
         notificationManager.createNotificationChannel(channel)
+
+        val title = if (articleTitle != null) "Captured Article from $articleTitle" else "Captured Article"
+        val previewText = collectedText.take(100) + if (collectedText.length > 100) "..." else ""
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Article Captured")
-            .setContentText("Tap to view the extracted text.")
+            .setContentTitle(title)
+            .setContentText(previewText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(collectedText))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .build()
-        notificationManager.notify(1, notification)
+
+        notificationManager.notify(notificationIdCounter++, notification)
+
         return super.onUnbind(intent)
     }
 
@@ -105,6 +123,8 @@ class ScreenContentService : AccessibilityService() {
     }
 
     companion object {
+        private const val TAG = "ScreenContentService"
         private const val CHANNEL_ID = "longform_channel"
+        private var notificationIdCounter = 1
     }
 }
