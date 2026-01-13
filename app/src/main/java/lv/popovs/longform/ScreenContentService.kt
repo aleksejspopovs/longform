@@ -6,7 +6,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.app.NotificationCompat
@@ -14,61 +15,51 @@ import androidx.core.app.NotificationCompat
 class ScreenContentService : AccessibilityService() {
 
     private val capturedParagraphs = LinkedHashSet<String>()
-    private var isAutoScrolling = false
     private var unproductiveScrolls = 0
-    private var lastScrollTime = 0L
+
+    private val scrollHandler = Handler(Looper.getMainLooper())
+    private lateinit var scrollRunnable: Runnable
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         capturedParagraphs.clear()
-        isAutoScrolling = true
         unproductiveScrolls = 0
-        lastScrollTime = 0L
-    }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (!isAutoScrolling) return
+        scrollRunnable = Runnable {
+            val rootNode = rootInActiveWindow ?: return@Runnable
 
-        val rootNode = rootInActiveWindow ?: return
+            val lastSize = capturedParagraphs.size
+            val paragraphs = mutableListOf<String>()
+            collectText(rootNode, paragraphs)
+            capturedParagraphs.addAll(paragraphs)
 
-        val lastSize = capturedParagraphs.size
-        val paragraphs = mutableListOf<String>()
-        collectText(rootNode, paragraphs)
-        capturedParagraphs.addAll(paragraphs)
+            if (capturedParagraphs.size > lastSize) {
+                unproductiveScrolls = 0
+            } else {
+                unproductiveScrolls++
+            }
 
-        if (capturedParagraphs.size > lastSize) {
-            unproductiveScrolls = 0
-        } else {
-            unproductiveScrolls++
-        }
-
-        val canScrollNow = if (unproductiveScrolls == 0) {
-            true // Productive scroll, go again immediately
-        } else {
-            // Unproductive, wait for debounce
-            System.currentTimeMillis() - lastScrollTime > SCROLL_DEBOUNCE_DELAY
-        }
-
-        if (canScrollNow) {
             val scrollableNode = findScrollableNode(rootNode)
             if (scrollableNode != null && unproductiveScrolls < 5) {
-                scrollableNode.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD.id)
-                lastScrollTime = System.currentTimeMillis()
+                scrollableNode.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id)
+                scrollHandler.postDelayed(scrollRunnable, 200L)
             } else {
-                isAutoScrolling = false
                 disableSelf()
             }
         }
+
+        scrollHandler.post(scrollRunnable) // Start the loop
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // We are now driving the process with a Handler, not listening to events.
     }
 
     private fun findScrollableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         if (node == null) return null
 
-        val actionList = node.actionList
-        for (action in actionList) {
-            if (action.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id) {
-                return node
-            }
+        if (node.actionList.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN)) {
+            return node
         }
 
         for (i in 0 until node.childCount) {
@@ -81,6 +72,7 @@ class ScreenContentService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onUnbind(intent: Intent?): Boolean {
+        scrollHandler.removeCallbacks(scrollRunnable) // Clean up the handler
         val collectedText = capturedParagraphs.joinToString("\n\n")
         val articleIntent = Intent(this, ArticleActivity::class.java).apply {
             putExtra(ArticleActivity.EXTRA_TEXT, collectedText)
@@ -104,7 +96,7 @@ class ScreenContentService : AccessibilityService() {
 
     private fun collectText(node: AccessibilityNodeInfo?, paragraphs: MutableList<String>) {
         if (node == null) return
-        if (node.isImportantForAccessibility && !node.text.isNullOrBlank()) {
+        if (!node.text.isNullOrBlank()) {
             paragraphs.add(node.text.toString())
         }
         for (i in 0 until node.childCount) {
@@ -113,8 +105,6 @@ class ScreenContentService : AccessibilityService() {
     }
 
     companion object {
-        private const val TAG = "ScreenContentService"
         private const val CHANNEL_ID = "longform_channel"
-        private const val SCROLL_DEBOUNCE_DELAY = 1000L
     }
 }
