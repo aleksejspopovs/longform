@@ -1,10 +1,10 @@
 package lv.popovs.longform
 
 import android.accessibilityservice.AccessibilityService
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
@@ -12,8 +12,8 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.app.NotificationCompat
 
+@SuppressLint("AccessibilityPolicy")
 class ScreenContentService : AccessibilityService() {
-
     private val capturedParagraphs = LinkedHashSet<String>()
     private var unproductiveScrolls = 0
     private var articleTitle: CharSequence? = null
@@ -90,7 +90,7 @@ class ScreenContentService : AccessibilityService() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         val pendingIntent = PendingIntent.getActivity(this, notificationIdCounter, articleIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         val channel = NotificationChannel(CHANNEL_ID, "Captured Articles", NotificationManager.IMPORTANCE_DEFAULT)
         notificationManager.createNotificationChannel(channel)
 
@@ -123,7 +123,6 @@ class ScreenContentService : AccessibilityService() {
     }
 
     companion object {
-        private const val TAG = "ScreenContentService"
         private const val CHANNEL_ID = "longform_channel"
         private var notificationIdCounter = 1
     }
