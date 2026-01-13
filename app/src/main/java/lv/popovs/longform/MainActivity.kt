@@ -1,60 +1,94 @@
 package lv.popovs.longform
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import lv.popovs.longform.ui.theme.LongformTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContent {
             LongformTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    EnableServiceContent(
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                InstructionsScreen()
             }
         }
     }
 }
 
 @Composable
-fun EnableServiceContent(modifier: Modifier = Modifier) {
+fun InstructionsScreen() {
     val context = LocalContext.current
+    var hasNotificationPermission by remember {
+        mutableStateOf(false)
+    }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            hasNotificationPermission = isGranted
+        }
+    )
+
+    LaunchedEffect(Unit) {
+        hasNotificationPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
     Column(
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Click the button to enable the Accessibility Service")
-        Button(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }) {
-            Text("Enable Service")
+        Text(
+            text = "This app helps you extract text from long articles.",
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = "1. Grant notification permission.\n2. Go to your phone's Accessibility settings and assign a shortcut to 'Longform'.\n3. Open an article in your browser or news app.\n4. Activate the accessibility shortcut to start capturing text.\n5. Scroll through the entire article.\n6. Deactivate the shortcut to see the captured text.",
+            modifier = Modifier.padding(vertical = 24.dp)
+        )
+        if (!hasNotificationPermission) {
+            Button(onClick = { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
+                Text("Grant Notification Permission")
+            }
         }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun DefaultPreview() {
-    LongformTheme {
-        EnableServiceContent()
+        Button(
+            onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+            enabled = hasNotificationPermission
+        ) {
+            Text("Open Accessibility Settings")
+        }
     }
 }
