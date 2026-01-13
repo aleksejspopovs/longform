@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,32 +63,35 @@ fun InstructionsScreen() {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "This app automatically extracts text from long articles.",
-            style = MaterialTheme.typography.titleLarge,
-            textAlign = TextAlign.Center
-        )
-        Text(
-            text = "1. Grant notification permission.\n2. Go to Accessibility settings and assign a shortcut to 'Longform'.\n3. Open an article in your browser or news app.\n4. Activate the shortcut. The app will scroll and capture the text automatically.\n5. Tap the notification to view the captured text.",
-            modifier = Modifier.padding(vertical = 24.dp)
-        )
-        if (!hasNotificationPermission) {
-            Button(onClick = { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
-                Text("Grant Notification Permission")
-            }
-        }
-        Button(
-            onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-            enabled = hasNotificationPermission
+    Scaffold { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Open Accessibility Settings")
+            Text(
+                text = "This app automatically extracts text from long articles.",
+                style = MaterialTheme.typography.titleLarge,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "1. Grant notification permission.\n2. Go to Accessibility settings and assign a shortcut to 'Longform'.\n3. Open an article in your browser or news app.\n4. Activate the shortcut. The app will scroll and capture the text automatically.\n5. Tap the notification to view the captured text.",
+                modifier = Modifier.padding(vertical = 24.dp)
+            )
+            if (!hasNotificationPermission) {
+                Button(onClick = { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
+                    Text("Grant Notification Permission")
+                }
+            }
+            Button(
+                onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                enabled = hasNotificationPermission
+            ) {
+                Text("Open Accessibility Settings")
+            }
         }
     }
 }
