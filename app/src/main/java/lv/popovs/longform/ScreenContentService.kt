@@ -66,7 +66,7 @@ class ScreenContentService : AccessibilityService() {
 
         val actionList = node.actionList
         for (action in actionList) {
-            if (action.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD.id) {
+            if (action.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id) {
                 return node
             }
         }
