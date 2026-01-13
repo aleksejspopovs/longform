@@ -4,9 +4,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import lv.popovs.longform.ui.theme.LongformTheme
 
 class ArticleActivity : ComponentActivity() {
@@ -28,9 +31,15 @@ class ArticleActivity : ComponentActivity() {
 
 @Composable
 fun ArticleScreen(text: String) {
-    BasicTextField(
-        value = text,
-        onValueChange = {},
-        modifier = Modifier.fillMaxSize()
-    )
+    Scaffold { innerPadding ->
+        TextField(
+            value = text,
+            onValueChange = {},
+            readOnly = true,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp)
+        )
+    }
 }

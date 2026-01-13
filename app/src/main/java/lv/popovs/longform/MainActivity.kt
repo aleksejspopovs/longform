@@ -3,7 +3,6 @@ package lv.popovs.longform
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -71,12 +70,12 @@ fun InstructionsScreen() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "This app helps you extract text from long articles.",
+            text = "This app automatically extracts text from long articles.",
             style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center
         )
         Text(
-            text = "1. Grant notification permission.\n2. Go to your phone's Accessibility settings and assign a shortcut to 'Longform'.\n3. Open an article in your browser or news app.\n4. Activate the accessibility shortcut to start capturing text.\n5. Scroll through the entire article.\n6. Deactivate the shortcut to see the captured text.",
+            text = "1. Grant notification permission.\n2. Go to Accessibility settings and assign a shortcut to 'Longform'.\n3. Open an article in your browser or news app.\n4. Activate the shortcut. The app will scroll and capture the text automatically.\n5. Tap the notification to view the captured text.",
             modifier = Modifier.padding(vertical = 24.dp)
         )
         if (!hasNotificationPermission) {
