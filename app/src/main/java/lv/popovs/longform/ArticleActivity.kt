@@ -1,14 +1,20 @@
 package lv.popovs.longform
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import lv.popovs.longform.ui.theme.LongformTheme
 
@@ -31,7 +37,22 @@ class ArticleActivity : ComponentActivity() {
 
 @Composable
 fun ArticleScreen(text: String) {
-    Scaffold { innerPadding ->
+    val context = LocalContext.current
+    Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(onClick = {
+                val sendIntent = Intent().apply {
+                    action = Intent.ACTION_SEND
+                    putExtra(Intent.EXTRA_TEXT, text)
+                    type = "text/plain"
+                }
+                val shareIntent = Intent.createChooser(sendIntent, null)
+                context.startActivity(shareIntent)
+            }) {
+                Icon(Icons.Filled.Share, contentDescription = "Share article")
+            }
+        }
+    ) { innerPadding ->
         TextField(
             value = text,
             onValueChange = {},
