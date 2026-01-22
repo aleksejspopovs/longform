@@ -45,22 +45,28 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun InstructionsScreen() {
     val context = LocalContext.current
-    var hasNotificationPermission by remember {
-        mutableStateOf(false)
-    }
+    var hasNotificationPermission by remember { mutableStateOf(false) }
+    var hasBluetoothPermissions by remember { mutableStateOf(false) }
+    var hasLocationPermission by remember { mutableStateOf(false) }
 
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { isGranted ->
-            hasNotificationPermission = isGranted
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+        onResult = { permissions ->
+            hasNotificationPermission = permissions[Manifest.permission.POST_NOTIFICATIONS] ?: hasNotificationPermission
+            hasBluetoothPermissions = permissions[Manifest.permission.BLUETOOTH_SCAN] ?: hasBluetoothPermissions &&
+                                        permissions[Manifest.permission.BLUETOOTH_CONNECT] ?: hasBluetoothPermissions
+            hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: hasLocationPermission
         }
     )
 
     LaunchedEffect(Unit) {
-        hasNotificationPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.POST_NOTIFICATIONS
-        ) == PackageManager.PERMISSION_GRANTED
+        val notificationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        val bluetoothScanPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+        val bluetoothConnectPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        val locationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        hasNotificationPermission = notificationPermission
+        hasBluetoothPermissions = bluetoothScanPermission && bluetoothConnectPermission
+        hasLocationPermission = locationPermission
     }
 
     Scaffold { innerPadding ->
@@ -78,17 +84,30 @@ fun InstructionsScreen() {
                 textAlign = TextAlign.Center
             )
             Text(
-                text = "1. Grant notification permission.\n2. Go to Accessibility settings and assign a shortcut to 'Longform'.\n3. Open an article in your browser or news app.\n4. Activate the shortcut. The app will scroll and capture the text automatically.\n5. Tap the notification to view the captured text.",
+                text = "1. Grant permissions.\n2. Go to Accessibility settings and assign a shortcut to 'Longform'.\n3. Open an article in your browser or news app.\n4. Activate the shortcut. The app will scroll and capture the text automatically.\n5. Tap the notification to view the captured text.",
                 modifier = Modifier.padding(vertical = 24.dp)
             )
-            if (!hasNotificationPermission) {
-                Button(onClick = { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }) {
-                    Text("Grant Notification Permission")
+
+            val permissionsToRequest = mutableListOf<String>()
+            if (!hasNotificationPermission) permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            if (!hasBluetoothPermissions) {
+                permissionsToRequest.add(Manifest.permission.BLUETOOTH_SCAN)
+                permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+            if (!hasLocationPermission) {
+                permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+                permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+
+            if (permissionsToRequest.isNotEmpty()) {
+                Button(onClick = { permissionLauncher.launch(permissionsToRequest.toTypedArray()) }) {
+                    Text("Grant Permissions")
                 }
             }
+
             Button(
                 onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-                enabled = hasNotificationPermission
+                enabled = hasNotificationPermission && hasBluetoothPermissions && hasLocationPermission
             ) {
                 Text("Open Accessibility Settings")
             }

@@ -87,6 +87,7 @@ class ScreenContentService : AccessibilityService() {
         val collectedText = capturedParagraphs.joinToString("\n\n")
         val articleIntent = Intent(this, ArticleActivity::class.java).apply {
             putExtra(ArticleActivity.EXTRA_TEXT, collectedText)
+            putExtra(ArticleActivity.EXTRA_TITLE, articleTitle)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         val pendingIntent = PendingIntent.getActivity(this, notificationIdCounter, articleIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
