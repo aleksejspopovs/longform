@@ -53,7 +53,7 @@ fun ArticleScreen(text: String, title: String) {
                 FloatingActionButton(onClick = {
                     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                     val currentDate = sdf.format(Date())
-                    val filename = "$currentDate $title.txt"
+                    val filename = "$currentDate $title"
 
                     val sendIntent = Intent(context, SendToEinkActivity::class.java).apply {
                         action = Intent.ACTION_SEND

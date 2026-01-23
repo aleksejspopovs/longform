@@ -7,6 +7,8 @@ import android.bluetooth.le.ScanResult
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
@@ -34,18 +36,23 @@ class SendToEinkActivity : ComponentActivity() {
     private var fileName: String? = null
     private var fileBytes: ByteArray? = null
 
+    companion object {
+        private const val TAG = "SendToEinkActivity"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         if (intent?.action == Intent.ACTION_SEND) {
             if (intent.type?.startsWith("text/") == true) {
-                fileName = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+                fileName = (intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: "Note") + ".txt"
                 fileBytes = intent.getStringExtra(Intent.EXTRA_TEXT)?.toByteArray()
             } else {
-                fileUri = intent.getParcelableExtra(Intent.EXTRA_STREAM)
-                fileName = fileUri?.lastPathSegment
+                fileUri = intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                fileName = fileUri?.let { getFileName(it) } ?: fileUri?.lastPathSegment
                 fileBytes = fileUri?.let { contentResolver.openInputStream(it)?.readBytes() }
             }
+            fileName = fileName ?: "Note.txt";
         }
 
         val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
@@ -68,6 +75,21 @@ class SendToEinkActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun getFileName(uri: Uri): String? {
+        val cursor = contentResolver.query(uri, null, null, null, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                // The DISPLAY_NAME column is a common convention for content providers
+                // to store the original file name.
+                val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex != -1) {
+                    return it.getString(nameIndex)
+                }
+            }
+        }
+        return null
     }
 }
 

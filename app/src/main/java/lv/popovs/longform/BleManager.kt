@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.charset.Charset
 import java.util.UUID
 
 @SuppressLint("MissingPermission")
@@ -142,7 +141,7 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
         if (originalFileNameBytes.size > maxFileNameBytesSize) {
             val lastDotIndex = originalFileName.lastIndexOf('.')
             val extension = if (lastDotIndex == -1) "" else originalFileName.substring(lastDotIndex)
-            val baseName = if (lastDotIndex == -1) originalFileName else originalFileName.substring(0, lastDotIndex)
+            val baseName = if (lastDotIndex == -1) originalFileName else originalFileName.take(lastDotIndex)
 
             val extensionBytesSize = extension.toByteArray(Charsets.UTF_8).size
             val maxBaseNameBytesSize = maxFileNameBytesSize - extensionBytesSize
@@ -202,7 +201,7 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
         buffer.putInt(bytesSent)
         buffer.put(fileBytes, bytesSent, currentChunkSize)
 
-        9.d(TAG, "mtu $mtu, offset $bytesSent, chunk size $chunkSize, remaining bytes $remainingBytes, current chunk size $currentChunkSize, buffer size ${buffer.array().size}")
+        Log.d(TAG, "mtu $mtu, offset $bytesSent, chunk size $chunkSize, remaining bytes $remainingBytes, current chunk size $currentChunkSize, buffer size ${buffer.array().size}")
 
         // Use the modern API for characteristic writes (API 33+)
         // This is a sequential write, using the default type which is generally WITH_RESPONSE.
@@ -220,14 +219,14 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             if (_scannedDevices.value.none { it.device.address == result.device.address }) {
-                _scannedDevices.value = _scannedDevices.value + result
+                _scannedDevices.value += result
             }
         }
 
         override fun onBatchScanResults(results: MutableList<ScanResult>?) {
             results?.forEach { result ->
                 if (_scannedDevices.value.none { it.device.address == result.device.address }) {
-                    _scannedDevices.value = _scannedDevices.value + result
+                    _scannedDevices.value += result
                 }
             }
         }
