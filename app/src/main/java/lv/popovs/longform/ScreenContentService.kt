@@ -291,15 +291,6 @@ class ScreenContentService : AccessibilityService() {
                 paragraphs.add(text.trim())
                 Log.d(TAG, "in ${node.uniqueId}, adding ${formatSnippet(text)}")
             }
-
-            // WebViews often flatten the accessibility tree, making a TextView a container
-            // for other paragraph-level TextViews after a scroll. If we find a TextView
-            // that is a paragraph but also has children, we must continue recursion.
-            if (isTextView(node) && node.childCount > 0) {
-                for (i in 0 until node.childCount) {
-                    collectText(node.getChild(i), paragraphs)
-                }
-            }
         } else {
             // Not a cohesive paragraph, so its children are treated as separate potential paragraphs (implicit breaks)
             for (i in 0 until node.childCount) {
