@@ -37,7 +37,6 @@ class ScreenContentService : AccessibilityService() {
     private var rootSnapshot: SnapshotNode? = null
     private var unproductiveScrolls = 0
     private var articleTitle: CharSequence? = null
-    private val webViewCache = mutableSetOf<String>()
 
     private val scrollHandler = Handler(Looper.getMainLooper())
     private lateinit var scrollRunnable: Runnable
@@ -48,7 +47,6 @@ class ScreenContentService : AccessibilityService() {
         rootSnapshot = null
         unproductiveScrolls = 0
         articleTitle = null
-        webViewCache.clear()
 
         scrollRunnable = Runnable {
             val rootNode = rootInActiveWindow ?: return@Runnable
@@ -102,6 +100,13 @@ class ScreenContentService : AccessibilityService() {
             )
             allNodes[key] = snapshot
             parentSnapshot?.addChild(snapshot)
+        } else {
+            if (isWebView(node)) {
+                // WebView generally exposes all elements without needing to scroll, and it has
+                // weird behaviors where scrolling can change the structure of the accessibility
+                // tree, so do not snapshot a WebView more than once.
+                return
+            }
         }
 
         for (i in 0 until node.childCount) {
@@ -135,7 +140,6 @@ class ScreenContentService : AccessibilityService() {
         scrollHandler.removeCallbacks(scrollRunnable) // Clean up the handler
 
         val paragraphs = mutableListOf<String>()
-        webViewCache.clear()
         rootSnapshot?.let { collectText(it, paragraphs) }
 
         if (paragraphs.isEmpty()) {
@@ -190,7 +194,7 @@ class ScreenContentService : AccessibilityService() {
 
     private fun isTextView(node: SnapshotNode): Boolean = node.className?.endsWith(".TextView") == true
     private fun isView(node: SnapshotNode): Boolean = node.className?.endsWith(".View") == true
-    private fun isWebView(node: SnapshotNode): Boolean = node.className?.endsWith(".WebView") == true
+    private fun isWebView(node: AccessibilityNodeInfo): Boolean = node.className?.endsWith(".WebView") == true
     private fun isLeaf(node: SnapshotNode): Boolean = node.children.isEmpty()
 
     private fun isLink(node: SnapshotNode): Boolean {
@@ -258,10 +262,6 @@ class ScreenContentService : AccessibilityService() {
     }
 
     private fun collectText(node: SnapshotNode, paragraphs: MutableList<String>) {
-        if (isWebView(node)) {
-            node.uniqueId?.let { if (!webViewCache.add(it)) return }
-        }
-
         if (isCohesiveParagraph(node)) {
             val text = extractCohesiveText(node)
             if (text.isNotBlank()) {
@@ -288,16 +288,12 @@ class ScreenContentService : AccessibilityService() {
         val text = node.text?.toString()
         val isParagraph = isCohesiveParagraph(node)
         
-        val isWebView = isWebView(node)
         val nodeId = node.uniqueId
-        val seenWebView = if (isWebView && nodeId != null) webViewCache.contains(nodeId) else false
         val clickable = node.actionIds.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK.id)
 
         Log.d(TAG, "  ".repeat(depth)
                 + "${nodeId ?: "null"}/${node.key} [${formatSnippet(text)}]"
                 + (if (isParagraph) " (paragraph)" else "")
-                + (if (isWebView) " (WEBVIEW)" else "")
-                + (if (seenWebView) " (seen)" else "")
                 + (if (clickable) " (clickable)" else "")
         )
 
