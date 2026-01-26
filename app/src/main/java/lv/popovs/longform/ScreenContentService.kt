@@ -13,11 +13,28 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.app.NotificationCompat
-import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 
 @SuppressLint("AccessibilityPolicy")
 class ScreenContentService : AccessibilityService() {
-    private val capturedParagraphs = LinkedHashSet<String>()
+    private class SnapshotNode(
+        val key: String,
+        val className: CharSequence?,
+        val text: CharSequence?,
+        val actionIds: List<Int>,
+        val uniqueId: String?
+    ) {
+        val children = mutableListOf<SnapshotNode>()
+        private val childKeys = mutableSetOf<String>()
+
+        fun addChild(child: SnapshotNode) {
+            if (childKeys.add(child.key)) {
+                children.add(child)
+            }
+        }
+    }
+
+    private val allNodes = mutableMapOf<String, SnapshotNode>()
+    private var rootSnapshot: SnapshotNode? = null
     private var unproductiveScrolls = 0
     private var articleTitle: CharSequence? = null
     private val webViewCache = mutableSetOf<String>()
@@ -27,31 +44,33 @@ class ScreenContentService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        capturedParagraphs.clear()
+        allNodes.clear()
+        rootSnapshot = null
         unproductiveScrolls = 0
         articleTitle = null
         webViewCache.clear()
 
         scrollRunnable = Runnable {
             val rootNode = rootInActiveWindow ?: return@Runnable
-
             if (articleTitle == null) {
                 articleTitle = rootNode.window?.title
             }
 
-            val lastSize = capturedParagraphs.size
-            val paragraphs = mutableListOf<String>()
-            collectText(rootNode, paragraphs)
-            capturedParagraphs.addAll(paragraphs)
+            val lastTreeSize = allNodes.size
+            captureToSnapshot(rootNode, null)
 
-            if (capturedParagraphs.size > lastSize) {
+            if (rootSnapshot == null) {
+                rootSnapshot = allNodes[generateKey(rootNode)]
+            }
+
+            if (allNodes.size > lastTreeSize) {
                 unproductiveScrolls = 0
-                Log.d(TAG, "productive ${capturedParagraphs.size} $lastSize, dumping tree:")
-                logTree(rootInActiveWindow)
+                Log.d(TAG, "productive: tree size ${allNodes.size} (was $lastTreeSize), dumping tree:")
+                logTree(rootSnapshot)
                 Log.d(TAG, "----")
             } else {
                 unproductiveScrolls++
-                Log.d(TAG, "unproductive ${capturedParagraphs.size} $lastSize")
+                Log.d(TAG, "unproductive: tree size ${allNodes.size}")
             }
 
             val scrollableNode = findScrollableNode(rootNode)
@@ -66,6 +85,33 @@ class ScreenContentService : AccessibilityService() {
         scrollHandler.post(scrollRunnable) // Start the loop
     }
 
+    private fun generateKey(node: AccessibilityNodeInfo): String {
+        return "${node.uniqueId}_${node.hashCode()}_${node.className}"
+    }
+
+    private fun captureToSnapshot(node: AccessibilityNodeInfo, parentSnapshot: SnapshotNode?) {
+        val key = generateKey(node)
+        var snapshot = allNodes[key]
+        if (snapshot == null) {
+            snapshot = SnapshotNode(
+                key = key,
+                className = node.className,
+                text = node.text,
+                actionIds = node.actionList.map { it.id },
+                uniqueId = node.uniqueId
+            )
+            allNodes[key] = snapshot
+            parentSnapshot?.addChild(snapshot)
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) {
+                captureToSnapshot(child, snapshot)
+            }
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
 
     private fun findScrollableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
@@ -76,8 +122,9 @@ class ScreenContentService : AccessibilityService() {
         }
 
         for (i in 0 until node.childCount) {
-            val child = findScrollableNode(node.getChild(i))
-            if (child != null) return child
+            val child = node.getChild(i)
+            val scrollable = findScrollableNode(child)
+            if (scrollable != null) return scrollable
         }
         return null
     }
@@ -87,11 +134,15 @@ class ScreenContentService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         scrollHandler.removeCallbacks(scrollRunnable) // Clean up the handler
 
-        if (capturedParagraphs.isEmpty()) {
+        val paragraphs = mutableListOf<String>()
+        webViewCache.clear()
+        rootSnapshot?.let { collectText(it, paragraphs) }
+
+        if (paragraphs.isEmpty()) {
             return super.onUnbind(intent)
         }
 
-        val collectedText = capturedParagraphs.joinToString("\n\n")
+        val collectedText = paragraphs.joinToString("\n\n")
         val articleIntent = Intent(this, ArticleActivity::class.java).apply {
             putExtra(ArticleActivity.EXTRA_TEXT, collectedText)
             putExtra(ArticleActivity.EXTRA_TITLE, articleTitle)
@@ -117,6 +168,10 @@ class ScreenContentService : AccessibilityService() {
 
         notificationManager.notify(notificationIdCounter++, notification)
 
+        // Clear tree data to free memory
+        allNodes.clear()
+        rootSnapshot = null
+
         return super.onUnbind(intent)
     }
 
@@ -127,35 +182,23 @@ class ScreenContentService : AccessibilityService() {
         val firstNonWhitespace = text.indexOfFirst { !it.isWhitespace() }
         val lastNonWhitespace = text.indexOfLast { !it.isWhitespace() }
 
-        val leadingWhitespace = text.substring(0, firstNonWhitespace)
+        val leadingWhitespace = text.take(firstNonWhitespace)
         val trailingWhitespace = text.substring(lastNonWhitespace + 1)
 
         return leadingWhitespace + left + trimmedText + right + trailingWhitespace
     }
 
-    private fun isTextView(node: AccessibilityNodeInfo): Boolean {
-        return node.className?.endsWith(".TextView") == true
-    }
+    private fun isTextView(node: SnapshotNode): Boolean = node.className?.endsWith(".TextView") == true
+    private fun isView(node: SnapshotNode): Boolean = node.className?.endsWith(".View") == true
+    private fun isWebView(node: SnapshotNode): Boolean = node.className?.endsWith(".WebView") == true
+    private fun isLeaf(node: SnapshotNode): Boolean = node.children.isEmpty()
 
-    private fun isView(node: AccessibilityNodeInfo): Boolean {
-        return node.className?.endsWith(".View") == true
-    }
-    
-    private fun isWebView(node: AccessibilityNodeInfo): Boolean {
-        return node.className?.endsWith(".WebView") == true
-    }
-
-    private fun isLeaf(node: AccessibilityNodeInfo): Boolean {
-        return node.childCount == 0
-    }
-
-    private fun isLink(node: AccessibilityNodeInfo): Boolean {
+    private fun isLink(node: SnapshotNode): Boolean {
         // A link is a clickable View with one or more children, all of whom are leaf TextViews.
-        val hasClickAction = node.actionList.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK)
-        if (!hasClickAction || node.childCount == 0 || !isView(node)) return false
+        val hasClickAction = node.actionIds.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK.id)
+        if (!hasClickAction || node.children.isEmpty() || !isView(node)) return false
 
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: return false
+        for (child in node.children) {
             if (!(isTextView(child) && isLeaf(child))) {
                 return false
             }
@@ -163,16 +206,15 @@ class ScreenContentService : AccessibilityService() {
         return true
     }
 
-    private fun isCohesiveParagraph(node: AccessibilityNodeInfo): Boolean {
+    private fun isCohesiveParagraph(node: SnapshotNode): Boolean {
         // Rule 1: Single TextView
         if (isTextView(node)) {
             return true
         }
 
         // Rule 2: Cohesive View (must have children to be a container)
-        if (node.childCount > 0) {
-            for (i in 0 until node.childCount) {
-                val child = node.getChild(i)
+        if (!node.children.isEmpty()) {
+            for (child in node.children) {
                 // A cohesive view can only contain these types of children:
                 // leaf TextViews
                 val isLeafTextView = isTextView(child) && isLeaf(child)
@@ -194,17 +236,10 @@ class ScreenContentService : AccessibilityService() {
         return false
     }
 
-    private fun extractCohesiveText(node: AccessibilityNodeInfo): String {
+    private fun extractCohesiveText(node: SnapshotNode): String {
         // If it's a link, return the special text by concatenating all leaf TextView children.
         if (isLink(node)) {
-            val parts = mutableListOf<String>()
-            for (i in 0 until node.childCount) {
-                val child = node.getChild(i)
-                val childText = child?.text?.toString()
-                if (!childText.isNullOrBlank()) {
-                    parts.add(childText)
-                }
-            }
+            val parts = node.children.mapNotNull { it.text?.toString() }.filter { it.isNotBlank() }
             return emphasize(parts.joinToString(""), "[", "]")
         }
 
@@ -218,71 +253,13 @@ class ScreenContentService : AccessibilityService() {
         }
 
         // Otherwise, combine children's text (Rule 2 composition).
-        val parts = mutableListOf<String>()
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            // We only extract text from the conforming children.
-            val childText = extractCohesiveText(child)
-            if (childText.isNotBlank()) {
-                parts.add(childText)
-            }
-        }
+        val parts = node.children.map { extractCohesiveText(it) }.filter { it.isNotBlank() }
         return parts.joinToString("")
     }
 
-    private fun formatSnippet(text: String?): String {
-        if (text == null) return "null"
-        if (text.length <= 30) return text
-        return "${text.take(15)}...${text.takeLast(15)}"
-    }
-
-    private fun logTree(node: AccessibilityNodeInfo?, depth: Int = 0) {
-        if (node == null) return
-
-        val textCharSequence = node.text
-        val text = textCharSequence?.toString()
-        val isParagraph = isCohesiveParagraph(node)
-        
-        val isWebView = isWebView(node)
-        val nodeId = node.uniqueId
-        val seenWebView = if (isWebView && nodeId != null) webViewCache.contains(nodeId) else false
-        val clickable = node.actionList.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK)
-
-        Log.d(TAG, "  ".repeat(depth)
-                + "${nodeId ?: "null"}/${node.hashCode()}.${node.className} [${formatSnippet(text)}]"
-                + (if (isParagraph) " (paragraph)" else "")
-                + (if (isWebView) " (WEBVIEW)" else "")
-                + (if (seenWebView) " (seen)" else "")
-                + (if (clickable) " (clickable)" else "")
-        )
-
-        // Log spans if the text is Spanned
-        if (textCharSequence is Spanned) {
-            val spans = textCharSequence.getSpans(0, textCharSequence.length, Any::class.java)
-            spans.forEach { span ->
-                val start = textCharSequence.getSpanStart(span)
-                val end = textCharSequence.getSpanEnd(span)
-                Log.d(TAG, "  ".repeat(depth + 1) + "SPAN: ${span::class.java.simpleName} ($start-$end)")
-            }
-        }
-
-        for (i in 0 until node.childCount) {
-            logTree(node.getChild(i), depth + 1)
-        }
-    }
-
-    private fun collectText(node: AccessibilityNodeInfo?, paragraphs: MutableList<String>) {
-        if (node == null) return
-
+    private fun collectText(node: SnapshotNode, paragraphs: MutableList<String>) {
         if (isWebView(node)) {
-            val nodeId = node.uniqueId
-            if (nodeId != null) {
-                val isNew = webViewCache.add(nodeId)
-                if (!isNew) {
-                    // WebView already seen, skip processing children.
-                    return
-                }
-            }
+            node.uniqueId?.let { if (!webViewCache.add(it)) return }
         }
 
         if (isCohesiveParagraph(node)) {
@@ -293,9 +270,50 @@ class ScreenContentService : AccessibilityService() {
             }
         } else {
             // Not a cohesive paragraph, so its children are treated as separate potential paragraphs (implicit breaks)
-            for (i in 0 until node.childCount) {
-                collectText(node.getChild(i), paragraphs)
+            for (child in node.children) {
+                collectText(child, paragraphs)
             }
+        }
+    }
+
+    private fun formatSnippet(text: String?): String {
+        if (text == null) return "null"
+        if (text.length <= 30) return text
+        return "${text.take(15)}...${text.takeLast(15)}"
+    }
+
+    private fun logTree(node: SnapshotNode?, depth: Int = 0) {
+        if (node == null) return
+
+        val text = node.text?.toString()
+        val isParagraph = isCohesiveParagraph(node)
+        
+        val isWebView = isWebView(node)
+        val nodeId = node.uniqueId
+        val seenWebView = if (isWebView && nodeId != null) webViewCache.contains(nodeId) else false
+        val clickable = node.actionIds.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK.id)
+
+        Log.d(TAG, "  ".repeat(depth)
+                + "${nodeId ?: "null"}/${node.key} [${formatSnippet(text)}]"
+                + (if (isParagraph) " (paragraph)" else "")
+                + (if (isWebView) " (WEBVIEW)" else "")
+                + (if (seenWebView) " (seen)" else "")
+                + (if (clickable) " (clickable)" else "")
+        )
+
+        // Log spans if the text is Spanned
+        val textCharSequence = node.text
+        if (textCharSequence is Spanned) {
+            val spans = textCharSequence.getSpans(0, textCharSequence.length, Any::class.java)
+            spans.forEach { span ->
+                val start = textCharSequence.getSpanStart(span)
+                val end = textCharSequence.getSpanEnd(span)
+                Log.d(TAG, "  ".repeat(depth + 1) + "SPAN: ${span::class.java.simpleName} ($start-$end)")
+            }
+        }
+
+        for (child in node.children) {
+            logTree(child, depth + 1)
         }
     }
 
