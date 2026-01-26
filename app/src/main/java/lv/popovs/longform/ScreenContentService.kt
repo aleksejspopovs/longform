@@ -6,9 +6,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.text.Spanned
+import android.text.style.StyleSpan
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -245,16 +247,88 @@ class ScreenContentService : AccessibilityService() {
         return false
     }
 
+    private fun applySpans(text: CharSequence?): String {
+        if (text == null) return ""
+        if (text !is Spanned) return text.toString()
+
+        val styleSpans = text.getSpans(0, text.length, StyleSpan::class.java)
+        if (styleSpans.isEmpty()) return text.toString()
+
+        // Track style changes at each index using a sorted approach for efficiency
+        val deltaMap = mutableMapOf<Int, Pair<Int, Int>>() // index -> (boldDelta, italicDelta)
+        for (span in styleSpans) {
+            val start = text.getSpanStart(span)
+            val end = text.getSpanEnd(span)
+            val style = span.style
+            val b = if (style == Typeface.BOLD || style == Typeface.BOLD_ITALIC) 1 else 0
+            val i = if (style == Typeface.ITALIC || style == Typeface.BOLD_ITALIC) 1 else 0
+            
+            if (b != 0 || i != 0) {
+                deltaMap[start] = deltaMap.getOrDefault(start, 0 to 0).let { (bAcc, iAcc) -> (bAcc + b) to (iAcc + i) }
+                deltaMap[end] = deltaMap.getOrDefault(end, 0 to 0).let { (bAcc, iAcc) -> (bAcc - b) to (iAcc - i) }
+            }
+        }
+
+        val sortedIndices = deltaMap.keys.sorted()
+        val result = StringBuilder()
+        var currentBoldCount = 0
+        var currentItalicCount = 0
+        var isBold = false
+        var isItalic = false
+        var lastPos = 0
+
+        for (idx in sortedIndices) {
+            // Append segment between transitions
+            if (idx > lastPos) {
+                result.append(text.subSequence(lastPos, idx.coerceAtMost(text.length)))
+                lastPos = idx
+            }
+
+            val (bDelta, iDelta) = deltaMap[idx]!!
+            currentBoldCount += bDelta
+            currentItalicCount += iDelta
+            
+            val charBold = currentBoldCount > 0
+            val charItalic = currentItalicCount > 0
+
+            // Close tags (reverse order of opening)
+            if (isItalic && !charItalic) {
+                result.append("_")
+                isItalic = false
+            }
+            if (isBold && !charBold) {
+                result.append("**")
+                isBold = false
+            }
+            
+            // Open tags
+            if (!isBold && charBold) {
+                result.append("**")
+                isBold = true
+            }
+            if (!isItalic && charItalic) {
+                result.append("_")
+                isItalic = true
+            }
+        }
+
+        if (lastPos < text.length) {
+            result.append(text.subSequence(lastPos, text.length))
+        }
+
+        return result.toString()
+    }
+
     private fun extractCohesiveText(node: SnapshotNode): String {
         // If it's a link, return the special text by concatenating all leaf TextView children.
         if (isLink(node)) {
-            val parts = node.children.mapNotNull { it.text?.toString() }.filter { it.isNotBlank() }
+            val parts = node.children.mapNotNull { applySpans(it.text) }.filter { it.isNotBlank() }
             return emphasize(parts.joinToString(""), "[", "]")
         }
 
         // If it has text itself (Rule 1), return it.
         if (!node.text.isNullOrBlank()) {
-            val text = node.text.toString()
+            val text = applySpans(node.text)
             if (isView(node)) {
                 return emphasize(text, "*", "*")
             }
