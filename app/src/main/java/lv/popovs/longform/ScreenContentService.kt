@@ -216,6 +216,11 @@ class ScreenContentService : AccessibilityService() {
             return true
         }
 
+        // Rule 1a: A leaf View with some text in it will do too
+        if (isView(node) && isLeaf(node) && !node.text.isNullOrBlank()) {
+            return true
+        }
+
         // Rule 2: Cohesive View (must have children to be a container)
         if (!node.children.isEmpty()) {
             for (child in node.children) {
