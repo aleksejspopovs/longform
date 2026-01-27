@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Longform</string>
+    <string name="description">Longform copies text out of your current app (such as a browser or a news reader) and lets you share it or send it to your Xteink X4 device.</string>
 </resources>

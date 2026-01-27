@@ -47,6 +47,18 @@ class ScreenContentService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+
+        if (!MainActivity.isAccessibilityDisclosureAccepted(this)) {
+            Log.w(TAG, "Accessibility disclosure not accepted. Aborting service.")
+            val intent = Intent(this, MainActivity::class.java).apply {
+                putExtra(MainActivity.EXTRA_SHOW_ACCESSIBILITY_DISCLOSURE, true)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            startActivity(intent)
+            disableSelf()
+            return
+        }
+
         allNodes.clear()
         rootSnapshot = null
         unproductiveScrolls = 0
@@ -142,7 +154,13 @@ class ScreenContentService : AccessibilityService() {
     override fun onInterrupt() {}
 
     override fun onUnbind(intent: Intent?): Boolean {
-        scrollHandler.removeCallbacks(scrollRunnable) // Clean up the handler
+        if (::scrollRunnable.isInitialized) {
+            scrollHandler.removeCallbacks(scrollRunnable)
+        }
+
+        if (!MainActivity.isAccessibilityDisclosureAccepted(this)) {
+            return super.onUnbind(intent)
+        }
 
         val paragraphs = mutableListOf<String>()
         rootSnapshot?.let { collectText(it, paragraphs) }

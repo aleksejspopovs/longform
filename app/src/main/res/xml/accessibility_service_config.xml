@@ -2,6 +2,6 @@
     android:canRetrieveWindowContent="true"
     android:accessibilityFlags="flagRetrieveInteractiveWindows"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:description="@string/app_name"
+    android:description="@string/description"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
     />
