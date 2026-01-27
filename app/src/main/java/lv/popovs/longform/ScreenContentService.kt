@@ -23,6 +23,7 @@ class ScreenContentService : AccessibilityService() {
         val key: String,
         val className: CharSequence?,
         val text: CharSequence?,
+        val contentDescription: CharSequence?,
         val actionIds: List<Int>,
         val uniqueId: String?
     ) {
@@ -98,6 +99,7 @@ class ScreenContentService : AccessibilityService() {
                 key = key,
                 className = node.className,
                 text = node.text,
+                contentDescription = node.contentDescription,
                 actionIds = node.actionList.map { it.id },
                 uniqueId = node.uniqueId
             )
@@ -392,9 +394,11 @@ class ScreenContentService : AccessibilityService() {
         
         val nodeId = node.uniqueId
         val clickable = node.actionIds.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK.id)
+        val description = node.contentDescription?.toString()
 
         Log.d(TAG, "  ".repeat(depth)
                 + "${nodeId ?: "null"}/${node.key} [${formatSnippet(text)}]"
+                + (if (description != null) " (desc: ${formatSnippet(description)})" else "")
                 + (if (isParagraph) " (paragraph)" else "")
                 + (if (clickable) " (clickable)" else "")
         )
