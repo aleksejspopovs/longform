@@ -224,7 +224,7 @@ class ScreenContentService : AccessibilityService() {
         }
 
         // Rule 2: Cohesive View (must have children to be a container)
-        if (!node.children.isEmpty()) {
+        if (isView(node) && !node.children.isEmpty()) {
             for (child in node.children) {
                 // A cohesive view can only contain these types of children:
                 // leaf TextViews
