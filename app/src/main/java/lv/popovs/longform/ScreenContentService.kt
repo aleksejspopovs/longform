@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.text.Spanned
 import android.text.style.StyleSpan
+import android.text.style.UnderlineSpan
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -252,10 +253,13 @@ class ScreenContentService : AccessibilityService() {
         if (text !is Spanned) return text.toString()
 
         val styleSpans = text.getSpans(0, text.length, StyleSpan::class.java)
-        if (styleSpans.isEmpty()) return text.toString()
+        val underlineSpans = text.getSpans(0, text.length, UnderlineSpan::class.java)
+        if (styleSpans.isEmpty() && underlineSpans.isEmpty()) return text.toString()
 
         // Track style changes at each index using a sorted approach for efficiency
-        val deltaMap = mutableMapOf<Int, Pair<Int, Int>>() // index -> (boldDelta, italicDelta)
+        // index -> (boldDelta, italicDelta, underlineDelta)
+        val deltaMap = mutableMapOf<Int, Triple<Int, Int, Int>>()
+        
         for (span in styleSpans) {
             val start = text.getSpanStart(span)
             val end = text.getSpanEnd(span)
@@ -264,17 +268,26 @@ class ScreenContentService : AccessibilityService() {
             val i = if (style == Typeface.ITALIC || style == Typeface.BOLD_ITALIC) 1 else 0
             
             if (b != 0 || i != 0) {
-                deltaMap[start] = deltaMap.getOrDefault(start, 0 to 0).let { (bAcc, iAcc) -> (bAcc + b) to (iAcc + i) }
-                deltaMap[end] = deltaMap.getOrDefault(end, 0 to 0).let { (bAcc, iAcc) -> (bAcc - b) to (iAcc - i) }
+                deltaMap[start] = deltaMap.getOrDefault(start, Triple(0, 0, 0)).let { (bAcc, iAcc, uAcc) -> Triple(bAcc + b, iAcc + i, uAcc) }
+                deltaMap[end] = deltaMap.getOrDefault(end, Triple(0, 0, 0)).let { (bAcc, iAcc, uAcc) -> Triple(bAcc - b, iAcc - i, uAcc) }
             }
+        }
+
+        for (span in underlineSpans) {
+            val start = text.getSpanStart(span)
+            val end = text.getSpanEnd(span)
+            deltaMap[start] = deltaMap.getOrDefault(start, Triple(0, 0, 0)).let { (bAcc, iAcc, uAcc) -> Triple(bAcc, iAcc, uAcc + 1) }
+            deltaMap[end] = deltaMap.getOrDefault(end, Triple(0, 0, 0)).let { (bAcc, iAcc, uAcc) -> Triple(bAcc, iAcc, uAcc - 1) }
         }
 
         val sortedIndices = deltaMap.keys.sorted()
         val result = StringBuilder()
         var currentBoldCount = 0
         var currentItalicCount = 0
+        var currentUnderlineCount = 0
         var isBold = false
         var isItalic = false
+        var isUnderline = false
         var lastPos = 0
 
         for (idx in sortedIndices) {
@@ -284,14 +297,20 @@ class ScreenContentService : AccessibilityService() {
                 lastPos = idx
             }
 
-            val (bDelta, iDelta) = deltaMap[idx]!!
+            val (bDelta, iDelta, uDelta) = deltaMap[idx]!!
             currentBoldCount += bDelta
             currentItalicCount += iDelta
+            currentUnderlineCount += uDelta
             
             val charBold = currentBoldCount > 0
             val charItalic = currentItalicCount > 0
+            val charUnderline = currentUnderlineCount > 0
 
             // Close tags (reverse order of opening)
+            if (isUnderline && !charUnderline) {
+                result.append("]")
+                isUnderline = false
+            }
             if (isItalic && !charItalic) {
                 result.append("_")
                 isItalic = false
@@ -309,6 +328,10 @@ class ScreenContentService : AccessibilityService() {
             if (!isItalic && charItalic) {
                 result.append("_")
                 isItalic = true
+            }
+            if (!isUnderline && charUnderline) {
+                result.append("[")
+                isUnderline = true
             }
         }
 
