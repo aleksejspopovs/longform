@@ -7,11 +7,14 @@ import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +39,7 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
     private var bytesSent = 0
     private var mtu = 23 // Default MTU
     private val txnId = (1..Int.MAX_VALUE).random()
+    private val handler = Handler(Looper.getMainLooper())
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
@@ -59,8 +63,8 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                val characteristic = gatt?.getService(SERVICE_UUID)?.getCharacteristic(SERVER_CHARACTERISTIC_UUID)
+            if (status == BluetoothGatt.GATT_SUCCESS && gatt != null) {
+                val characteristic = gatt.getService(SERVICE_UUID)?.getCharacteristic(SERVER_CHARACTERISTIC_UUID)
                 if (characteristic == null) {
                     _transferStatus.value = "Server characteristic not found"
                     disconnect()
@@ -83,10 +87,10 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
 
                 // 2. Write to the descriptor to enable indications on the peripheral
                 _transferStatus.value = "Enabling indications..."
-                // Use the modern API (API 33+) for writing descriptors
-                // We rely on onDescriptorWrite for the result.
-                gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)
-            } else {
+                safeGattOperation(gatt, "Enable indications", { onServicesDiscovered(gatt, status) }) {
+                    gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)
+                }
+            } else if (status != BluetoothGatt.GATT_SUCCESS) {
                 _transferStatus.value = "Service discovery failed"
             }
         }
@@ -103,8 +107,13 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt?, characteristic: BluetoothGattCharacteristic?, status: Int) {
             if (transferInProgress) {
-                // This call ensures the next chunk is only sent after the previous write has been acknowledged (due to WRITE_TYPE_DEFAULT)
-                sendFileChunk(gatt)
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    // This call ensures the next chunk is only sent after the previous write has been acknowledged (due to WRITE_TYPE_DEFAULT)
+                    sendFileChunk(gatt)
+                } else {
+                    _transferStatus.value = "Write failed (status: $status)"
+                    disconnect()
+                }
             }
         }
 
@@ -126,8 +135,33 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
         }
     }
 
+    private fun safeGattOperation(
+        gatt: BluetoothGatt,
+        operationName: String,
+        onRetry: () -> Unit,
+        onSuccess: () -> Unit = {},
+        operation: () -> Int
+    ) {
+        val result = operation()
+        when (result) {
+            BluetoothStatusCodes.SUCCESS -> onSuccess()
+            BluetoothStatusCodes.ERROR_GATT_WRITE_REQUEST_BUSY -> {
+                Log.w(TAG, "$operationName: GATT busy, retrying in 100ms")
+                handler.postDelayed({
+                    if (bluetoothGatt == gatt) onRetry()
+                }, 100)
+            }
+            else -> {
+                Log.e(TAG, "$operationName: Failed with status $result")
+                _transferStatus.value = "$operationName failed (status: $result)"
+                disconnect()
+            }
+        }
+    }
+
     private fun sendOffer(gatt: BluetoothGatt?) {
-        val characteristic = gatt?.getService(SERVICE_UUID)?.getCharacteristic(CLIENT_CHARACTERISTIC_UUID) ?: return
+        if (gatt == null) return
+        val characteristic = gatt.getService(SERVICE_UUID)?.getCharacteristic(CLIENT_CHARACTERISTIC_UUID) ?: return
         val originalFileName = fileName ?: return
         val fileBytes = fileToSend ?: return
 
@@ -173,15 +207,18 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
         buffer.put(actualFileNameBytes)
 
         // Use the modern API for characteristic writes (API 33+)
-        gatt.writeCharacteristic(
-            characteristic,
-            buffer.array(),
-            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-        )
+        safeGattOperation(gatt, "Send offer", { sendOffer(gatt) }) {
+            gatt.writeCharacteristic(
+                characteristic,
+                buffer.array(),
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            )
+        }
     }
 
     private fun sendFileChunk(gatt: BluetoothGatt?) {
-        val characteristic = gatt?.getService(SERVICE_UUID)?.getCharacteristic(CLIENT_CHARACTERISTIC_UUID) ?: return
+        if (gatt == null) return
+        val characteristic = gatt.getService(SERVICE_UUID)?.getCharacteristic(CLIENT_CHARACTERISTIC_UUID) ?: return
         val fileBytes = fileToSend ?: return
 
         if (bytesSent >= fileBytes.size) {
@@ -205,14 +242,21 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
 
         // Use the modern API for characteristic writes (API 33+)
         // This is a sequential write, using the default type which is generally WITH_RESPONSE.
-        gatt.writeCharacteristic(
-            characteristic,
-            buffer.array(),
-            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-        )
-
-        bytesSent += currentChunkSize
-        _transferStatus.value = "Sending file... (${(bytesSent * 100) / fileBytes.size}%)"
+        safeGattOperation(
+            gatt,
+            "Write chunk",
+            { sendFileChunk(gatt) },
+            onSuccess = {
+                bytesSent += currentChunkSize
+                _transferStatus.value = "Sending file... (${(bytesSent * 100) / fileBytes.size}%)"
+            }
+        ) {
+            gatt.writeCharacteristic(
+                characteristic,
+                buffer.array(),
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            )
+        }
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -267,6 +311,7 @@ class BleManager(private val context: Context, private val bluetoothAdapter: Blu
         bluetoothGatt?.close()
         bluetoothGatt = null
         transferInProgress = false
+        handler.removeCallbacksAndMessages(null)
     }
 
     companion object {
