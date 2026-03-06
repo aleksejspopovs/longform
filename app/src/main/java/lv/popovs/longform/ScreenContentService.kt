@@ -80,8 +80,8 @@ class ScreenContentService : AccessibilityService() {
             if (allNodes.size > lastTreeSize) {
                 unproductiveScrolls = 0
                 Log.d(TAG, "productive: tree size ${allNodes.size} (was $lastTreeSize), dumping tree:")
-                logTree(rootSnapshot)
-                Log.d(TAG, "----")
+                //logTree(rootSnapshot)
+                //Log.d(TAG, "----")
             } else {
                 unproductiveScrolls++
                 Log.d(TAG, "unproductive: tree size ${allNodes.size}")
@@ -388,7 +388,7 @@ class ScreenContentService : AccessibilityService() {
             val text = extractCohesiveText(node)
             if (text.isNotBlank()) {
                 paragraphs.add(text.trim())
-                Log.d(TAG, "in ${node.uniqueId}, adding ${formatSnippet(text)}")
+                // Log.d(TAG, "in ${node.uniqueId}, adding ${formatSnippet(text)}")
             }
         } else {
             // Not a cohesive paragraph, so its children are treated as separate potential paragraphs (implicit breaks)
